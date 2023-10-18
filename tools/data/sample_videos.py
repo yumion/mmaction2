@@ -32,7 +32,7 @@ def main(args):
     else:
         video_dirs = [v_p.parent for v_p in Path(args.video_dir).rglob(f"*.{args.suffix}")]
 
-    for directory in tqdm(video_dirs, desc="unpacking dataset", position=0):
+    for directory in tqdm(sorted(video_dirs), desc="unpacking dataset", position=0):
         if args.video_name is None:
             # in case directory name and video file is same name
             video_name = f"{directory.name}.{args.suffix}"
