@@ -11,3 +11,4 @@ PyTurboJPEG
 soundfile
 tensorboard
 wandb
+pytorchvideo

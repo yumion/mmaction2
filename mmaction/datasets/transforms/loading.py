@@ -548,9 +548,8 @@ class UntrimmedSampleFrames(BaseTransform):
         num_clips = clip_centers.shape[0]
         frame_inds = clip_centers[:, None] + np.arange(
             -(self.clip_len // 2 * self.frame_interval),
-            self.frame_interval *
-            (self.clip_len -
-             (self.clip_len // 2)), self.frame_interval)[None, :]
+            self.frame_interval * (self.clip_len - (self.clip_len // 2)),
+            self.frame_interval)[None, :]
         # clip frame_inds to legal range
         frame_inds = np.clip(frame_inds, 0, total_frames - 1)
 
@@ -1266,8 +1265,9 @@ class OpenCVInit(BaseTransform):
             Defaults to ``'disk'``.
     """
 
-    def __init__(self, io_backend: str = 'disk', **kwargs) -> None:
+    def __init__(self, io_backend: str = 'disk', do_calc_total=True, **kwargs) -> None:
         self.io_backend = io_backend
+        self.do_calc_total = do_calc_total
         self.kwargs = kwargs
         self.file_client = None
         self.tmp_folder = None
@@ -1300,7 +1300,8 @@ class OpenCVInit(BaseTransform):
         container = mmcv.VideoReader(new_path)
         results['new_path'] = new_path
         results['video_reader'] = container
-        results['total_frames'] = len(container)
+        if self.do_calc_total:
+            results['total_frames'] = len(container) - 1
 
         return results
 

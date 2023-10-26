@@ -41,7 +41,7 @@ def main():
             save_dir = args.save_dir
             save_dir.mkdir(parents=True, exist_ok=True)
         # df.to_csv(save_dir / f"{anno.stem}_mmaction.{args.suffix}", index=False, header=False)
-        df.to_csv(save_dir / f"mmaction.{args.suffix}", index=False, header=False)
+        df.to_csv(save_dir / "mmaction.txt", index=False, header=False, sep=" ")
 
 
 def read_label2index_map(label_txt):
