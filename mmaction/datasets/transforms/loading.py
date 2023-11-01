@@ -1265,9 +1265,8 @@ class OpenCVInit(BaseTransform):
             Defaults to ``'disk'``.
     """
 
-    def __init__(self, io_backend: str = 'disk', do_calc_total=True, **kwargs) -> None:
+    def __init__(self, io_backend: str = 'disk', **kwargs) -> None:
         self.io_backend = io_backend
-        self.do_calc_total = do_calc_total
         self.kwargs = kwargs
         self.file_client = None
         self.tmp_folder = None
@@ -1300,7 +1299,7 @@ class OpenCVInit(BaseTransform):
         container = mmcv.VideoReader(new_path)
         results['new_path'] = new_path
         results['video_reader'] = container
-        if self.do_calc_total:
+        if results.get("total_frames") is None:
             results['total_frames'] = len(container) - 1
 
         return results
