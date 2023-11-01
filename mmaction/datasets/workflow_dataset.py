@@ -46,11 +46,14 @@ class VideoWorkflowDataset(BaseActionDataset):
         test_mode: bool = False,
         **kwargs,
     ):
+        # common arguments
         self.segment_len = segment_len
         self.drop_last = drop_last
         self.delimiter = delimiter
+        # for video file
         self.video_name = video_name
         self.suffix = suffix if video_name is None else video_name.split(".")[-1]
+        # ignore `_join_prefix()`
         super().__init__(
             ann_file,
             pipeline=pipeline,
@@ -71,9 +74,7 @@ class VideoWorkflowDataset(BaseActionDataset):
 
     def load_data_list(self) -> List[dict]:
         # search annotation file for each video
-        ann_file_paths = glob(
-            str(self.data_root / f"**/{self.ann_file}"), recursive=True
-        )
+        ann_file_paths = glob(str(self.data_root / f"**/{self.ann_file}"), recursive=True)
 
         data_list = []
         for ann_file_path in ann_file_paths:
@@ -85,9 +86,7 @@ class VideoWorkflowDataset(BaseActionDataset):
         exists(ann_file_path)
 
         if self.video_name is not None:
-            video_path = (
-                ann_file_path.parent / self.data_prefix["video"] / self.video_name
-            )
+            video_path = ann_file_path.parent / self.data_prefix["video"] / self.video_name
         else:
             video_path = (
                 ann_file_path.parent / self.data_prefix["video"] / ann_file_path.stem
@@ -95,9 +94,7 @@ class VideoWorkflowDataset(BaseActionDataset):
 
         return self._get_video_infos(ann_file_path, filename=video_path)
 
-    def _get_video_infos(
-        self, ann_file_path: Path, frame_dir: Path = None, filename: Path = None
-    ):
+    def _get_video_infos(self, ann_file_path: Path, frame_dir: Path = None, filename: Path = None):
         assert (
             frame_dir is not None or filename is not None,
             "frame_dir or filename must be specified",
@@ -120,8 +117,7 @@ class VideoWorkflowDataset(BaseActionDataset):
                 if not self.drop_last and i == num_subsegments - 1:
                     segment_len += remainder
                 video_info = {
-                    "_start_index": start_index
-                    + i * segment_len,  # avoid overwrite start_index
+                    "_start_index": start_index + i * segment_len,  # avoid overwrite start_index
                     "total_frames": segment_len,
                     "label": label,
                 }
@@ -174,8 +170,8 @@ class FrameWorkflowDataset(VideoWorkflowDataset):
         test_mode: bool = False,
         **kwargs,
     ):
+        # for image files
         self.filename_tmpl = filename_tmpl
-        # ignore `_join_prefix()`
         super().__init__(
             ann_file=ann_file,
             pipeline=pipeline,
