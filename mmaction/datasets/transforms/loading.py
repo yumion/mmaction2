@@ -1300,7 +1300,7 @@ class OpenCVInit(BaseTransform):
         results['new_path'] = new_path
         results['video_reader'] = container
         if results.get("total_frames") is None:
-            results['total_frames'] = len(container) - 1
+            results['total_frames'] = len(container)
 
         return results
 
@@ -1333,6 +1333,9 @@ class OpenCVDecode(BaseTransform):
         container = results['video_reader']
         imgs = list()
 
+        if results["total_frames"] < 36:
+            print(results.get("filename") or results.get("frame_dir"))
+            print(results["total_frames"], results['frame_inds'])
         if results['frame_inds'].ndim != 1:
             results['frame_inds'] = np.squeeze(results['frame_inds'])
 

@@ -114,11 +114,20 @@ class VideoWorkflowDataset(BaseActionDataset):
             num_subsegments = total_frames // segment_len
             remainder = total_frames - num_subsegments * segment_len
             for i in range(num_subsegments):
-                if not self.drop_last and i == num_subsegments - 1:
-                    segment_len += remainder
                 video_info = {
                     "_start_index": start_index + i * segment_len,  # avoid overwrite start_index
                     "total_frames": segment_len,
+                    "label": label,
+                }
+                if frame_dir is not None:
+                    video_info["frame_dir"] = str(frame_dir)
+                if filename is not None:
+                    video_info["filename"] = str(filename)
+                video_infos.append(video_info)
+            if not self.drop_last:
+                video_info = {
+                    "_start_index": start_index + num_subsegments * segment_len,
+                    "total_frames": remainder,
                     "label": label,
                 }
                 if frame_dir is not None:
