@@ -1,15 +1,14 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import math
-import os.path as osp
+from pathlib import Path
 from typing import Optional, Sequence
 
+from mmaction.registry import HOOKS
+from mmaction.structures import ActionDataSample
 from mmengine import FileClient
 from mmengine.hooks import Hook
 from mmengine.runner import EpochBasedTrainLoop, Runner
 from mmengine.visualization import Visualizer
-
-from mmaction.registry import HOOKS
-from mmaction.structures import ActionDataSample
 
 
 @HOOKS.register_module()
@@ -32,12 +31,14 @@ class VisualizationHook(Hook):
             :meth:`mmcls.visualization.ClsVisualizer.add_datasample`.
     """
 
-    def __init__(self,
-                 enable=False,
-                 interval: int = 5000,
-                 show: bool = False,
-                 out_dir: Optional[str] = None,
-                 **kwargs):
+    def __init__(
+        self,
+        enable=False,
+        interval: int = 5000,
+        show: bool = False,
+        out_dir: Optional[str] = None,
+        **kwargs,
+    ):
         self._visualizer: Visualizer = Visualizer.get_current_instance()
 
         self.enable = enable
@@ -49,13 +50,15 @@ class VisualizationHook(Hook):
         else:
             self.file_client = None
 
-        self.draw_args = {**kwargs, 'show': show}
+        self.draw_args = {**kwargs, "show_frames": show}
 
-    def _draw_samples(self,
-                      batch_idx: int,
-                      data_batch: dict,
-                      data_samples: Sequence[ActionDataSample],
-                      step: int = 0) -> None:
+    def _draw_samples(
+        self,
+        batch_idx: int,
+        data_batch: dict,
+        data_samples: Sequence[ActionDataSample],
+        step: int = 0,
+    ) -> None:
         """Visualize every ``self.interval`` samples from a data batch.
 
         Args:
@@ -68,7 +71,7 @@ class VisualizationHook(Hook):
             return
 
         batch_size = len(data_samples)
-        videos = data_batch['inputs']
+        videos = data_batch["inputs"]
         start_idx = batch_size * batch_idx
         end_idx = start_idx + batch_size
 
@@ -78,32 +81,45 @@ class VisualizationHook(Hook):
         for sample_id in range(first_sample_id, end_idx, self.interval):
             video = videos[sample_id - start_idx]
             # move channel to the last
-            video = video.permute(1, 2, 3, 0).numpy().astype('uint8')
+            video = video.permute(0, 2, 3, 4, 1)  # (clip,C,T,H,W) -> (clip,T,H,W,C)
+            video = video.numpy().astype("uint8")  # Tensor to numpy
+            video = video[..., ::-1]  # RGB to BGR
 
             data_sample = data_samples[sample_id - start_idx]
-            if 'filename' in data_sample:
+            if "filename" in data_sample:
                 # osp.basename works on different platforms even file clients.
-                sample_name = osp.basename(data_sample.get('filename'))
-            elif 'frame_dir' in data_sample:
-                sample_name = osp.basename(data_sample.get('frame_dir'))
+                filename = Path(data_sample.get("filename"))
+                sample_name = (
+                    f"{filename.parent.name}_{filename.stem}_start{data_sample.start_index:06d}"
+                )
+            elif "frame_dir" in data_sample:
+                frame_dir = Path(data_sample.get("frame_dir"))
+                sample_name = f"{frame_dir.stem}_start{data_sample.start_index:06d}"
             else:
                 sample_name = str(sample_id)
 
-            draw_args = self.draw_args
-            if self.out_dir is not None:
-                draw_args['out_path'] = self.file_client.join_path(
-                    self.out_dir, f'{sample_name}_{step}')
+            # this `num_clips`` value depends on `num_clips` of SampleFrames, `ThreeCrop` and `TenCrop`
+            num_clips = video.shape[0]
+            for i in range(num_clips):
+                clip = video[i]
 
-            self._visualizer.add_datasample(
-                sample_name,
-                video=video,
-                data_sample=data_sample,
-                step=step,
-                **self.draw_args,
-            )
+                draw_args = self.draw_args
+                if self.out_dir is not None:
+                    draw_args["out_path"] = self.file_client.join_path(
+                        self.out_dir, f"{sample_name}_clip{i}_{step}"
+                    )
 
-    def after_val_iter(self, runner: Runner, batch_idx: int, data_batch: dict,
-                       outputs: Sequence[ActionDataSample]) -> None:
+                self._visualizer.add_datasample(
+                    f"{sample_name}_clip{i}",
+                    video=clip,
+                    data_sample=data_sample,
+                    step=step,
+                    **self.draw_args,
+                )
+
+    def after_val_iter(
+        self, runner: Runner, batch_idx: int, data_batch: dict, outputs: Sequence[ActionDataSample]
+    ) -> None:
         """Visualize every ``self.interval`` samples during validation.
 
         Args:
@@ -119,8 +135,9 @@ class VisualizationHook(Hook):
 
         self._draw_samples(batch_idx, data_batch, outputs, step=step)
 
-    def after_test_iter(self, runner: Runner, batch_idx: int, data_batch: dict,
-                        outputs: Sequence[ActionDataSample]) -> None:
+    def after_test_iter(
+        self, runner: Runner, batch_idx: int, data_batch: dict, outputs: Sequence[ActionDataSample]
+    ) -> None:
         """Visualize every ``self.interval`` samples during test.
 
         Args:

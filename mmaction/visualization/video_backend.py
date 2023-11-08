@@ -30,7 +30,7 @@ class LocalVisBackend(LocalVisBackend):
                   frames: np.ndarray,
                   step: int = 0,
                   fps: Optional[int] = 4,
-                  out_type: Optional[int] = 'img',
+                  out_type: Optional[str] = 'img',
                   **kwargs) -> None:
         """Record the frames of a video to disk.
 
