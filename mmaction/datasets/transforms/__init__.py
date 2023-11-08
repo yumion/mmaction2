@@ -16,7 +16,7 @@ from .pose_transforms import (DecompressPose, GeneratePoseTarget, GenSkeFeat,
                               ToMotion, UniformSampleFrames)
 from .processing import (CenterCrop, ColorJitter, Flip, Fuse, MultiScaleCrop,
                          RandomCrop, RandomRescale, RandomResizedCrop, Resize,
-                         TenCrop, ThreeCrop)
+                         TenCrop, ThreeCrop, Imgaug)
 from .text_transforms import CLIPTokenize
 from .wrappers import ImgAug, PytorchVideoWrapper, TorchVisionWrapper
 
@@ -34,7 +34,7 @@ __all__ = [
     'PreNormalize2D', 'PreNormalize3D', 'PyAVDecode', 'PyAVDecodeMotionVector',
     'PyAVInit', 'PyAVInit', 'PytorchVideoWrapper', 'RandomCrop',
     'RandomRescale', 'RandomResizedCrop', 'RawFrameDecode', 'Resize',
-    'SampleAVAFrames', 'SampleFrames', 'TenCrop', 'ThreeCrop', 'ToMotion',
+    'SampleAVAFrames', 'SampleFrames', 'TenCrop', 'ThreeCrop', 'Imgaug', 'ToMotion',
     'TorchVisionWrapper', 'Transpose', 'UniformSample', 'UniformSampleFrames',
     'UntrimmedSampleFrames', 'MMUniformSampleFrames', 'MMDecode', 'MMCompact',
     'CLIPTokenize'
