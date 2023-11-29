@@ -27,6 +27,7 @@ class VisualizationHook(Hook):
         out_dir (str, optional): directory where painted images will be saved
             in the testing process. If None, handle with the backends of the
             visualizer. Defaults to None.
+        classes (Sequence[str], optional): The class names of the dataset.
         **kwargs: other keyword arguments of
             :meth:`mmcls.visualization.ClsVisualizer.add_datasample`.
     """
@@ -37,6 +38,7 @@ class VisualizationHook(Hook):
         interval: int = 5000,
         show: bool = False,
         out_dir: Optional[str] = None,
+        classes: Optional[Sequence[str]] = None,
         **kwargs,
     ):
         self._visualizer: Visualizer = Visualizer.get_current_instance()
@@ -50,6 +52,9 @@ class VisualizationHook(Hook):
         else:
             self.file_client = None
 
+        self.classes = classes
+        if self.classes is not None:
+            self._visualizer.dataset_meta = {"classes": self.classes}
         self.draw_args = {**kwargs, "show_frames": show}
 
     def _draw_samples(
@@ -83,7 +88,6 @@ class VisualizationHook(Hook):
             # move channel to the last
             video = video.permute(0, 2, 3, 4, 1)  # (clip,C,T,H,W) -> (clip,T,H,W,C)
             video = video.numpy().astype("uint8")  # Tensor to numpy
-            video = video[..., ::-1]  # RGB to BGR
 
             data_sample = data_samples[sample_id - start_idx]
             if "filename" in data_sample:
@@ -114,6 +118,7 @@ class VisualizationHook(Hook):
                     video=clip,
                     data_sample=data_sample,
                     step=step,
+                    classes=self.classes,
                     **self.draw_args,
                 )
 

@@ -3,7 +3,7 @@ USER_ID=$(id -u)
 GROUP_ID=$(id -g)
 USER_NAME=$(whoami)
 
-cd /mnt/cloudy_3/MA/engineering/src/atsushi/mmaction2
+cd /mnt/MA/engineering/src/atsushi/mmaction2
 
 docker rm -f $CONTAINER_NAME && \
 docker run \

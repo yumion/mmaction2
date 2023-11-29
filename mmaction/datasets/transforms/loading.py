@@ -9,11 +9,10 @@ from typing import Dict, List, Optional, Union
 import mmcv
 import numpy as np
 import torch
-from mmcv.transforms import BaseTransform
-from mmengine.fileio import FileClient
-
 from mmaction.registry import TRANSFORMS
 from mmaction.utils import get_random_string, get_shm_dir, get_thread_id
+from mmcv.transforms import BaseTransform
+from mmengine.fileio import FileClient
 
 
 @TRANSFORMS.register_module()
@@ -406,6 +405,28 @@ class SampleFrames(BaseTransform):
                     f'twice_sample={self.twice_sample}, '
                     f'out_of_bound_opt={self.out_of_bound_opt}, '
                     f'test_mode={self.test_mode})')
+        return repr_str
+
+
+@TRANSFORMS.register_module()
+class OverlapSampleFrames(SampleFrames):
+    def __init__(self, clip_len, frame_interval=6):
+        super().__init__(clip_len, frame_interval)
+
+    def transform(self, results):
+        end = results['frame_ind']
+        start = end - (self.clip_len - 1) * self.frame_interval
+        frame_inds = np.arange(start, end + self.frame_interval, self.frame_interval, dtype=np.int)
+        results['frame_inds'] = frame_inds
+        results['clip_len'] = self.clip_len
+        results['num_clips'] = 1
+        results['frame_interval'] = self.frame_interval
+        return results
+
+    def __repr__(self):
+        repr_str = (f'{self.__class__.__name__}('
+                    f'clip_len={self.clip_len}, '
+                    f'frame_interval={self.frame_interval}')
         return repr_str
 
 
@@ -1926,4 +1947,45 @@ class LoadProposals(BaseTransform):
                     f'pgm_features_dir={self.pgm_features_dir}, '
                     f'proposal_ext={self.proposal_ext}, '
                     f'feature_ext={self.feature_ext})')
+        return repr_str
+
+
+@TRANSFORMS.register_module()
+class LoadFrames(BaseTransform):
+    import cv2
+
+    def transform(self, results):
+        frame_inds = results['frame_inds']
+        modality = results['modality']
+        filename_tmpl = results.get('filename_tmpl', '{:09d}.png')
+        imgs = list()
+
+        if results.get('data_paths'):
+            zip_inds_paths = zip(frame_inds, results['data_paths'])
+        else:
+            # if data_paths is None, zip fixed data_path
+            zip_inds_paths = zip(frame_inds, [results['frame_dir']] * len(frame_inds))
+
+        for idx, data_path in zip_inds_paths:
+            if modality == 'RGB':
+                frame_path = osp.join(data_path, filename_tmpl.format(idx))
+                frame = cv2.imread(frame_path)
+                if frame is None:
+                    raise ValueError(f'[LoadFrames]frame does not exist: {frame_path}')
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                imgs.append(frame)
+            elif modality == 'Flow':
+                x_frame = cv2.imread(osp.join(data_path, 'x_' + filename_tmpl.format(idx)), cv2.IMREAD_GRAYSCALE)
+                y_frame = cv2.imread(osp.join(data_path, 'y_' + filename_tmpl.format(idx)), cv2.IMREAD_GRAYSCALE)
+                imgs.extend([x_frame, y_frame])
+            else:
+                raise NotImplementedError
+
+        results['imgs'] = imgs
+        results['original_shape'] = imgs[0].shape[:2]
+        results['img_shape'] = imgs[0].shape[:2]
+        return results
+
+    def __repr__(self):
+        repr_str = f'{self.__class__.__name__}(mode={self.mode})'
         return repr_str

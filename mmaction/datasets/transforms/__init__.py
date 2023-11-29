@@ -7,7 +7,7 @@ from .loading import (ArrayDecode, AudioFeatureSelector, BuildPseudoClip,
                       LoadAudioFeature, LoadHVULabel, LoadLocalizationFeature,
                       LoadProposals, LoadRGBFromFile, OpenCVDecode, OpenCVInit,
                       PIMSDecode, PIMSInit, PyAVDecode, PyAVDecodeMotionVector,
-                      PyAVInit, RawFrameDecode, SampleAVAFrames, SampleFrames,
+                      PyAVInit, RawFrameDecode, SampleAVAFrames, SampleFrames, OverlapSampleFrames, LoadFrames,
                       UniformSample, UntrimmedSampleFrames)
 from .pose_transforms import (DecompressPose, GeneratePoseTarget, GenSkeFeat,
                               JointToBone, MergeSkeFeat, MMCompact, MMDecode,
@@ -37,5 +37,5 @@ __all__ = [
     'SampleAVAFrames', 'SampleFrames', 'TenCrop', 'ThreeCrop', 'Imgaug', 'ToMotion',
     'TorchVisionWrapper', 'Transpose', 'UniformSample', 'UniformSampleFrames',
     'UntrimmedSampleFrames', 'MMUniformSampleFrames', 'MMDecode', 'MMCompact',
-    'CLIPTokenize'
+    'CLIPTokenize', "OverlapSampleFrames", "LoadFrames",
 ]

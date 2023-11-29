@@ -11,7 +11,8 @@ from .repeat_aug_dataset import RepeatAugDataset, repeat_pseudo_collate
 from .transforms import *  # noqa: F401, F403
 from .video_dataset import VideoDataset
 from .video_text_dataset import VideoTextDataset
-from .workflow_dataset import FrameWorkflowDataset, VideoWorkflowDataset
+from .workflow_dataset import ImageWorkflowDataset, VideoWorkflowDataset
+from .sarrarp50_dataset import SarRarp50Dataset
 
 __all__ = [
     "AVADataset",
@@ -29,6 +30,7 @@ __all__ = [
     "MSRVTTVQA",
     "MSRVTTVQAMC",
     "CharadesSTADataset",
-    "FrameWorkflowDataset",
+    "ImageWorkflowDataset",
     "VideoWorkflowDataset",
+    "SarRarp50Dataset",
 ]

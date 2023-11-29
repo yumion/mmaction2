@@ -7,11 +7,34 @@ from tqdm import tqdm
 
 def parser_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("annotation", type=Path, help="")
-    parser.add_argument("labels", type=Path, help="")
-    parser.add_argument("--save-dir", "--save_dir", type=Path, help="")
-    parser.add_argument("--suffix", help="", default="csv", type=str)
-    parser.add_argument("--sep", help="", default=",", type=str)
+    parser.add_argument(
+        "annotation",
+        type=Path,
+        help="path to annotation csv file or parent directory",
+    )
+    parser.add_argument(
+        "--labels",
+        type=Path,
+        help="path to label txt file including label names separated by newline",
+    )
+    parser.add_argument(
+        "--save-dir",
+        "--save_dir",
+        type=Path,
+        help="path to directory savgin converted annotation file",
+    )
+    parser.add_argument(
+        "--suffix",
+        default="csv",
+        type=str,
+        help="annotation file suffix. csv or txt",
+    )
+    parser.add_argument(
+        "--sep",
+        default=",",
+        type=str,
+        help="delimiter/separator of annotation file. comma or space",
+    )
     return parser.parse_args()
 
 
@@ -29,18 +52,21 @@ def main():
             ]
         )
 
-    label2index = read_label2index_map(args.labels)
+    if args.labels is not None:
+        label2index = read_label2index_map(args.labels)
     for anno in tqdm(annotations):
         df = pd.read_csv(anno, sep=args.sep)
         df = convert_start_phase2start_end_phase(df)
-        df["phase-id"] = df["phase-id"].map(label2index)
+
+        if args.labels is not None:
+            df["phase-id"] = df["phase-id"].map(label2index)
 
         if args.save_dir is None:
             save_dir = anno.parent
         else:
             save_dir = args.save_dir
             save_dir.mkdir(parents=True, exist_ok=True)
-        # df.to_csv(save_dir / f"{anno.stem}_mmaction.{args.suffix}", index=False, header=False)
+        # df.to_csv(save_dir / f"{anno.stem}.txt", index=False, header=False, sep=" ")
         df.to_csv(save_dir / "mmaction.txt", index=False, header=False, sep=" ")
 
 

@@ -59,14 +59,14 @@ class LocalVisBackend(LocalVisBackend):
                 raise ImportError('Please install moviepy to enable '
                                   'output file.')
 
-            frames = [x[..., ::-1] for x in frames]
+            frames = list(frames)  # ImageSequenceClip requires list type
             video_clips = ImageSequenceClip(frames, fps=fps)
             name = osp.splitext(name)[0]
             if out_type == 'gif':
-                out_path = osp.join(self._save_dir, name + '.gif')
+                out_path = osp.join(self._save_dir, name + f'.gif')
                 video_clips.write_gif(out_path, logger=None)
             elif out_type == 'video':
-                out_path = osp.join(self._save_dir, name + '.mp4')
+                out_path = osp.join(self._save_dir, name + f'.mp4')
                 video_clips.write_videofile(
                     out_path, remove_temp=True, logger=None)
 
@@ -98,7 +98,7 @@ class WandbVisBackend(WandbVisBackend):
             fps (int): Frames per second. Defaults to 4.
         """
         frames = frames.transpose(0, 3, 1, 2)
-        self._wandb.log({'video': wandb.Video(frames, fps=fps, format='gif')})
+        self._wandb.log({name: wandb.Video(frames, fps=fps, format='gif')}, commit=self._commit)
 
 
 @VISBACKENDS.register_module()

@@ -142,6 +142,7 @@ class ActionVisualizer(Visualizer):
                        name: str,
                        video: Union[np.ndarray, Sequence[np.ndarray], str],
                        data_sample: Optional[ActionDataSample] = None,
+                       classes: Optional[Sequence[str]] = None,
                        draw_gt: bool = True,
                        draw_pred: bool = True,
                        draw_score: bool = True,
@@ -167,6 +168,8 @@ class ActionVisualizer(Visualizer):
                 np.ndarray, video file path, rawframes folder path.
             data_sample (:obj:`ActionDataSample`, optional): The annotation of
                 the frame. Defaults to None.
+            classes (Sequence[str], optional): The categories names.
+                Defaults to None.
             draw_gt (bool): Whether to draw ground truth labels.
                 Defaults to True.
             draw_pred (bool): Whether to draw prediction labels.
@@ -195,12 +198,11 @@ class ActionVisualizer(Visualizer):
             step (int): Global step value to record. Defaults to 0.
             fps (int): Frames per second for saving video. Defaults to 4.
         """
-        classes = None
         video = self._load_video(video, target_resolution)
         tol_video = len(video)
 
         if self.dataset_meta is not None:
-            classes = self.dataset_meta.get('classes', None)
+            classes = classes or self.dataset_meta.get('classes', None)
 
         if data_sample is None:
             data_sample = ActionDataSample()
@@ -214,8 +216,7 @@ class ActionVisualizer(Visualizer):
             self.set_image(frame)
 
             if draw_gt and 'gt_label' in data_sample:
-                gt_label = data_sample.gt_label
-                idx = gt_label.tolist()
+                idx = data_sample.gt_label.tolist()
                 class_labels = [''] * len(idx)
                 if classes is not None:
                     class_labels = [f' ({classes[i]})' for i in idx]
@@ -226,8 +227,7 @@ class ActionVisualizer(Visualizer):
                 texts.append(prefix + ('\n' + ' ' * len(prefix)).join(labels))
 
             if draw_pred and 'pred_label' in data_sample:
-                pred_label = data_sample.pred_label
-                idx = pred_label.tolist()
+                idx = data_sample.pred_label.tolist()
                 score_labels = [''] * len(idx)
                 class_labels = [''] * len(idx)
                 if draw_score and 'pred_score' in data_sample:

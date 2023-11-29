@@ -1,7 +1,7 @@
 import logging
 from glob import glob
 from pathlib import Path
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional, Sequence, Union
 
 from mmaction.registry import DATASETS
 from mmaction.utils import ConfigType
@@ -14,7 +14,7 @@ from .base import BaseActionDataset
 @DATASETS.register_module()
 class VideoWorkflowDataset(BaseActionDataset):
     """
-    Example of a annotation file like action_discrete.txt
+    Example of a annotation file like action_continues.txt
 
     .. code-block:: txt
         start-frame end-frame class_id
@@ -34,12 +34,12 @@ class VideoWorkflowDataset(BaseActionDataset):
     def __init__(
         self,
         ann_file: str,
+        classes: Sequence[str],
         pipeline: List[Union[ConfigType, Callable]],
         data_root: str,
         data_prefix: ConfigType = dict(video=""),
         video_name: Optional[str] = None,
         suffix: str = ".mp4",
-        num_classes: Optional[int] = None,
         segment_len: Optional[int] = None,
         drop_last: bool = False,
         delimiter: str = " ",
@@ -47,6 +47,7 @@ class VideoWorkflowDataset(BaseActionDataset):
         **kwargs,
     ):
         # common arguments
+        self.classes = classes
         self.segment_len = segment_len
         self.drop_last = drop_last
         self.delimiter = delimiter
@@ -59,7 +60,7 @@ class VideoWorkflowDataset(BaseActionDataset):
             pipeline=pipeline,
             test_mode=test_mode,
             multi_class=False,
-            num_classes=num_classes,
+            num_classes=len(classes),
             modality="RGB",
             data_root=None,
             lazy_init=True,
@@ -79,7 +80,11 @@ class VideoWorkflowDataset(BaseActionDataset):
         data_list = []
         for ann_file_path in ann_file_paths:
             data_list.extend(self._load_annotation(Path(ann_file_path)))
-        print_log(f"Loaded {len(data_list)} clips", logger="current", level=logging.INFO)
+        print_log(
+            f"Loaded {len(data_list)} clips from {self.ann_file}",
+            logger="current",
+            level=logging.INFO,
+        )
         return data_list
 
     def _load_annotation(self, ann_file_path: Path) -> List[dict]:
@@ -89,7 +94,7 @@ class VideoWorkflowDataset(BaseActionDataset):
             video_path = ann_file_path.parent / self.data_prefix["video"] / self.video_name
         else:
             video_path = (
-                ann_file_path.parent / self.data_prefix["video"] / ann_file_path.stem
+                ann_file_path.parent / self.data_prefix["video"] / ann_file_path.parent.name
             ).with_suffix(self.suffix)
 
         return self._get_video_infos(ann_file_path, filename=video_path)
@@ -107,7 +112,8 @@ class VideoWorkflowDataset(BaseActionDataset):
 
             start_index = int(line_split[0])
             end_index = int(line_split[1])
-            label = int(line_split[2])
+            classname = line_split[2]
+            label = self.classes.index(classname)
 
             total_frames = end_index - start_index
             segment_len = self.segment_len or total_frames
@@ -118,6 +124,7 @@ class VideoWorkflowDataset(BaseActionDataset):
                     "_start_index": start_index + i * segment_len,  # avoid overwrite start_index
                     "total_frames": segment_len,
                     "label": label,
+                    "classname": classname,
                 }
                 if frame_dir is not None:
                     video_info["frame_dir"] = str(frame_dir)
@@ -129,6 +136,7 @@ class VideoWorkflowDataset(BaseActionDataset):
                     "_start_index": start_index + num_subsegments * segment_len,
                     "total_frames": remainder,
                     "label": label,
+                    "classname": classname,
                 }
                 if frame_dir is not None:
                     video_info["frame_dir"] = str(frame_dir)
@@ -146,9 +154,9 @@ class VideoWorkflowDataset(BaseActionDataset):
 
 
 @DATASETS.register_module()
-class FrameWorkflowDataset(VideoWorkflowDataset):
+class ImageWorkflowDataset(VideoWorkflowDataset):
     """
-    Example of a annotation file like action_discrete.txt
+    Example of a annotation file like action_continues.txt
 
     .. code-block:: txt
         start-frame end-frame class_id
@@ -168,11 +176,11 @@ class FrameWorkflowDataset(VideoWorkflowDataset):
     def __init__(
         self,
         ann_file: str,
+        classes: Sequence[str],
         pipeline: List[Union[ConfigType, Callable]],
         data_root: str,
         data_prefix: ConfigType = dict(img=""),
         filename_tmpl: str = "{:09}.png",
-        num_classes: Optional[int] = None,
         segment_len: Optional[int] = None,
         drop_last: bool = False,
         delimiter: str = " ",
@@ -183,10 +191,10 @@ class FrameWorkflowDataset(VideoWorkflowDataset):
         self.filename_tmpl = filename_tmpl
         super().__init__(
             ann_file=ann_file,
+            classes=classes,
             pipeline=pipeline,
             data_root=data_root,
             data_prefix=data_prefix,
-            num_classes=num_classes,
             segment_len=segment_len,
             drop_last=drop_last,
             delimiter=delimiter,
