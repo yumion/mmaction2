@@ -75,6 +75,7 @@ class VideoWorkflowDataset(BaseActionDataset):
 
     def load_data_list(self) -> List[dict]:
         # search annotation file for each video
+        # NOTE: using glob.glob to search symlinks instead of Path.rglob
         ann_file_paths = glob(str(self.data_root / f"**/{self.ann_file}"), recursive=True)
 
         data_list = []
