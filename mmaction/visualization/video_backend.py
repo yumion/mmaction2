@@ -5,11 +5,13 @@ from typing import Optional
 
 import cv2
 import numpy as np
-from mmengine.visualization import (LocalVisBackend, TensorboardVisBackend,
-                                    WandbVisBackend)
-from mmengine.visualization.vis_backend import force_init_env
-
 from mmaction.registry import VISBACKENDS
+from mmengine.visualization import (
+    LocalVisBackend,
+    TensorboardVisBackend,
+    WandbVisBackend,
+)
+from mmengine.visualization.vis_backend import force_init_env
 
 try:
     import wandb
@@ -61,12 +63,12 @@ class LocalVisBackend(LocalVisBackend):
 
             frames = list(frames)  # ImageSequenceClip requires list type
             video_clips = ImageSequenceClip(frames, fps=fps)
-            name = osp.splitext(name)[0]
+            name = f'{osp.splitext(name)[0]}_{step}'
             if out_type == 'gif':
-                out_path = osp.join(self._save_dir, name + f'.gif')
+                out_path = osp.join(self._save_dir, name + '.gif')
                 video_clips.write_gif(out_path, logger=None)
             elif out_type == 'video':
-                out_path = osp.join(self._save_dir, name + f'.mp4')
+                out_path = osp.join(self._save_dir, name + '.mp4')
                 video_clips.write_videofile(
                     out_path, remove_temp=True, logger=None)
 
