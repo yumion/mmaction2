@@ -1,5 +1,6 @@
 import argparse
 import csv
+import json
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
@@ -38,13 +39,15 @@ def parse_args():
 
 def main():
     args = parse_args()
-    video_path = args.video
 
     inferencer = WholeVideoInferencer(
         Path(args.config),
         Path(args.checkpoint),
         gpu_id=args.gpu_id,
     )
+
+    video_path = args.video
+    print(f"{video_path} is being predicted...")
     annotation = convert_start_end2continues(args.annotation, inferencer.classes)
 
     results = inferencer.predict_on_video(
@@ -61,8 +64,17 @@ def main():
         preds, annotation[: len(preds)], n_classes=inferencer.num_classes, overlap=args.tolerance
     )
     frame_acc = _accuracy(preds, annotation[: len(preds)])
-    scores = {f"segmental_f1_score@{args.tolerance}": segmental_f1, "accuracy": frame_acc}
+    scores = {
+        "video": video_path,
+        "total": len(preds),
+        f"segmental_f1_score@{int(args.tolerance*100)}": segmental_f1,
+        "accuracy": frame_acc,
+    }
     print(scores)
+
+    if args.out:
+        with (args.out.parent / f"scores_{video_path.stem}.json").open("w") as fw:
+            json.dump(scores, fw, indent=4)
 
     if args.out and "label" in args.out_items:
         with args.out.open("w") as fw:
@@ -110,10 +122,6 @@ class WholeVideoInferencer:
             pbar.set_postfix(
                 pred_label=result["pred_label"][0], pred_score=result["pred_score"][0]
             )
-
-            # TODO: remove this
-            if i > 2:
-                break
 
         results["pred_scores"] = np.array(results["pred_scores"])
         results["pred_labels"] = np.array(results["pred_labels"])
