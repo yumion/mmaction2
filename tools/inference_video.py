@@ -1,10 +1,12 @@
 import argparse
+import csv
 from pathlib import Path
+from typing import List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
 from mmaction.apis import inference_recognizer, init_recognizer
-from segmental_score import _f1k
+from segmental_score import _accuracy, _f1k
 from tqdm import tqdm
 
 
@@ -13,9 +15,22 @@ def parse_args():
     parser.add_argument("config", type=Path, help="test config file path")
     parser.add_argument("checkpoint", type=Path, help="checkpoint file")
     parser.add_argument("video", type=Path, help="video file")
+    parser.add_argument("annotation", type=Path, help="annotation file")
+    parser.add_argument("--out", type=Path, help="output result file")
+    parser.add_argument(
+        "--out-items",
+        "--out_items",
+        choices=["label", "score"],
+        nargs="+",
+        default=["label"],
+        help="class label or/and confidence score",
+    )
     parser.add_argument("--num-input-frames", "--num_input_frames", type=int, default=32)
-    parser.add_argument("--frame-intervals", "--frame_intervals", type=int, default=2)
+    parser.add_argument("--frame-intervals", "--frame_intervals", type=int, default=1)
     parser.add_argument("--num-overlap", "--num_overlap", type=int, default=0)
+    parser.add_argument(
+        "--tolerance", type=float, default=0.1, help="tolerance for segmental score"
+    )
     parser.add_argument("--gpu-id", "--gpu_id", type=int, default=0)
     args = parser.parse_args()
     return args
@@ -24,11 +39,13 @@ def parse_args():
 def main():
     args = parse_args()
     video_path = args.video
+
     inferencer = WholeVideoInferencer(
         Path(args.config),
         Path(args.checkpoint),
         gpu_id=args.gpu_id,
     )
+    annotation = convert_start_end2continues(args.annotation, inferencer.classes)
 
     results = inferencer.predict_on_video(
         video_path,
@@ -38,9 +55,23 @@ def main():
     )
 
     preds = results["pred_labels"]
-    confidences = results["pred_scores"][:, :8]
+    confidences = results["pred_scores"]
 
-    print(confidences.shape, preds.shape)
+    segmental_f1 = _f1k(
+        preds, annotation[: len(preds)], n_classes=inferencer.num_classes, overlap=args.tolerance
+    )
+    frame_acc = _accuracy(preds, annotation[: len(preds)])
+    scores = {f"segmental_f1_score@{args.tolerance}": segmental_f1, "accuracy": frame_acc}
+    print(scores)
+
+    if args.out and "label" in args.out_items:
+        with args.out.open("w") as fw:
+            fw.write("\n".join(map(str, preds.tolist())))
+
+    if args.out and "score" in args.out_items:
+        with args.out.with_suffix(".score").open("w") as fw:
+            writer = csv.writer(fw)
+            writer.writerows(confidences.tolist())
 
 
 class WholeVideoInferencer:
@@ -49,6 +80,8 @@ class WholeVideoInferencer:
         self.checkpoint_path = checkpoint_path
         self.device = f"cuda:{gpu_id}" if gpu_id >= 0 else "cpu"
         self._init_recognizer()
+        self.num_classes = self.model.cls_head.num_classes
+        self.classes = self.model.cfg.get("classes")
 
     def _init_recognizer(self):
         self.model = init_recognizer(
@@ -77,6 +110,8 @@ class WholeVideoInferencer:
             pbar.set_postfix(
                 pred_label=result["pred_label"][0], pred_score=result["pred_score"][0]
             )
+
+            # TODO: remove this
             if i > 2:
                 break
 
@@ -114,6 +149,23 @@ class WholeVideoInferencer:
             "pred_score": [result.pred_score.tolist()] * segment_len,  # (N,C)
             "pred_label": result.pred_label.tolist() * segment_len,  # (N,)
         }
+
+
+def convert_start_end2continues(
+    annotation_file: Path, classes: Optional[Union[List[str], Tuple[str]]]
+) -> np.ndarray:
+    annotation = []
+    with annotation_file.open() as fr:
+        reader = csv.reader(fr, delimiter=" ")
+        for row in reader:
+            start, end, classname, *_ = row
+            for _ in range(int(end) - int(start)):
+                if classes is not None:
+                    label = classes.index(classname)
+                else:
+                    label = int(classname)
+                annotation.append(label)
+    return np.array(annotation)
 
 
 if __name__ == "__main__":
