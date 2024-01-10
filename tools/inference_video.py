@@ -2,7 +2,7 @@ import argparse
 import csv
 import json
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
@@ -11,7 +11,7 @@ from segmental_score import _accuracy, _f1k
 from tqdm import tqdm
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MMAction2 test (and eval) a video")
     parser.add_argument("config", type=Path, help="test config file path")
     parser.add_argument("checkpoint", type=Path, help="checkpoint file")
@@ -37,7 +37,7 @@ def parse_args():
     return args
 
 
-def main():
+def main() -> None:
     args = parse_args()
 
     inferencer = WholeVideoInferencer(
@@ -48,7 +48,6 @@ def main():
 
     video_path = args.video
     print(f"{video_path} is being predicted...")
-    annotation = convert_start_end2continues(args.annotation, inferencer.classes)
 
     results = inferencer.predict_on_video(
         video_path,
@@ -60,6 +59,18 @@ def main():
     preds = results["pred_labels"]
     confidences = results["pred_scores"]
 
+    if args.out and "label" in args.out_items:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        with args.out.open("w") as fw:
+            fw.write("\n".join(map(str, preds.tolist())))
+
+    if args.out and "score" in args.out_items:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        with args.out.with_suffix(".score").open("w") as fw:
+            writer = csv.writer(fw)
+            writer.writerows(confidences.tolist())
+
+    annotation = convert_start_end2continues(args.annotation, inferencer.classes)
     segmental_f1 = _f1k(
         preds, annotation[: len(preds)], n_classes=inferencer.num_classes, overlap=args.tolerance
     )
@@ -73,17 +84,9 @@ def main():
     print(scores)
 
     if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
         with (args.out.parent / f"scores_{video_path.stem}.json").open("w") as fw:
             json.dump(scores, fw, indent=4)
-
-    if args.out and "label" in args.out_items:
-        with args.out.open("w") as fw:
-            fw.write("\n".join(map(str, preds.tolist())))
-
-    if args.out and "score" in args.out_items:
-        with args.out.with_suffix(".score").open("w") as fw:
-            writer = csv.writer(fw)
-            writer.writerows(confidences.tolist())
 
 
 class WholeVideoInferencer:
@@ -95,7 +98,7 @@ class WholeVideoInferencer:
         self.num_classes = self.model.cls_head.num_classes
         self.classes = self.model.cfg.get("classes")
 
-    def _init_recognizer(self):
+    def _init_recognizer(self) -> None:
         self.model = init_recognizer(
             self.config_path,
             str(self.checkpoint_path),
@@ -108,43 +111,75 @@ class WholeVideoInferencer:
         num_input_frames: int,
         frame_intervals: int,
         num_overlap: int = 0,
-    ):
-        results = {"pred_scores": [], "pred_labels": []}
-        inputs = self._preprocess_data(video_path, num_input_frames, frame_intervals, num_overlap)
+    ) -> Dict[str, np.ndarray]:
+        segment_len = num_input_frames * frame_intervals
+        num_overlap = min(num_overlap, segment_len - 1)  # clip maximum of num_overlap
+        inputs = self._preprocess_data(video_path, segment_len, num_overlap)
+        if num_overlap == 0:
+            all_scores = []
+            all_labels = []
+        else:
+            all_scores = np.full(
+                (self.total_frames, self.num_classes, num_overlap), np.nan, dtype=np.float32
+            )
+            all_labels = np.full((self.total_frames, num_overlap), np.nan, dtype=np.float16)
+
         pbar = tqdm(inputs)
         for i, (start_index, segment_len) in enumerate(pbar):
             pbar.set_description(f"{video_path.name} - {start_index:06d}")
 
-            result = self.predict_on_segment(video_path, start_index, segment_len)
-            results["pred_scores"].extend(result["pred_score"])
-            results["pred_labels"].extend(result["pred_label"])
+            output = self.predict_on_segment(video_path, start_index, segment_len)
+            if num_overlap == 0:
+                all_scores.extend(output["pred_score"])
+                all_labels.extend(output["pred_label"])
+            else:
+                _idx = i % num_overlap
+                all_scores[start_index : start_index + segment_len, :, _idx] = output["pred_score"]
+                all_labels[start_index : start_index + segment_len, _idx] = output["pred_label"]
 
             pbar.set_postfix(
-                pred_label=result["pred_label"][0], pred_score=result["pred_score"][0]
+                pred_label=output["pred_label"][0], pred_score=output["pred_score"][0]
             )
 
-        results["pred_scores"] = np.array(results["pred_scores"])
-        results["pred_labels"] = np.array(results["pred_labels"])
-        return results
+        if num_overlap == 0:
+            return {
+                "pred_scores": np.array(all_scores),  # (N,C)
+                "pred_labels": np.array(all_labels),  # (N,)
+            }
+        else:
+            # Compute average of scores and mode of labels for each frame
+            return {
+                "pred_scores": np.nanmean(all_scores, axis=-1),  # (N,C,segment) -> (N,C)
+                "pred_labels": np_nanmode(all_labels, axis=-1),  # (N,segment) -> (N,)
+            }
 
     def _preprocess_data(
         self,
         video_path: Path,
-        num_input_frames: int,
-        frame_intervals: int,
-        num_overlap: int = 0,
-    ):
-        segment_len = num_input_frames * frame_intervals
-        total_frames = int(cv2.VideoCapture(str(video_path)).get(cv2.CAP_PROP_FRAME_COUNT))
-        num_subsegments = total_frames // segment_len
-        remainder = total_frames - num_subsegments * segment_len
-
-        inputs = [(i * segment_len, segment_len) for i in range(num_subsegments)]
+        segment_len: int,
+        num_overlap: int,
+    ) -> List[Tuple[int, int]]:
+        self.total_frames = int(cv2.VideoCapture(str(video_path)).get(cv2.CAP_PROP_FRAME_COUNT))
+        # calculate how many segments can be divided
+        num_segments = self.total_frames // (segment_len - num_overlap)
+        remainder = self.total_frames - num_segments * (segment_len - num_overlap)
+        # (start_index, segment_len)
+        # NOTE: change segment_len if remainder < segment_len in order not to beyond total_frames
+        inputs = [
+            (
+                i * (segment_len - num_overlap),
+                min(segment_len, self.total_frames - i * (segment_len - num_overlap)),
+            )
+            for i in range(num_segments)
+        ]
+        # add remainder as last segment
         if remainder > 0:
-            inputs += [(num_subsegments * segment_len, remainder)]
+            inputs += [(num_segments * (segment_len - num_overlap), remainder)]
         return inputs
 
-    def predict_on_segment(self, video_path: Path, start_index: int, segment_len: int):
+    def predict_on_segment(
+        self, video_path: Path, start_index: int, segment_len: int
+    ) -> Dict[str, List[Union[int, float]]]:
         data = dict(
             filename=str(video_path),
             label=-1,
@@ -160,7 +195,7 @@ class WholeVideoInferencer:
 
 
 def convert_start_end2continues(
-    annotation_file: Path, classes: Optional[Union[List[str], Tuple[str]]]
+    annotation_file: Path, classes: Optional[Sequence[str]]
 ) -> np.ndarray:
     annotation = []
     with annotation_file.open() as fr:
@@ -174,6 +209,26 @@ def convert_start_end2continues(
                     label = int(classname)
                 annotation.append(label)
     return np.array(annotation)
+
+
+def np_nanmode(arr: Sequence, axis: Optional[int] = None) -> np.ndarray:
+    arr = np.array(arr)
+    num_axises = arr.ndim
+    assert axis is None or axis < num_axises, f"axis must be less than {num_axises}"
+    if axis is None:
+        arr = arr.flatten()
+        axis = 0
+    return np.apply_along_axis(lambda x: _mode(x), axis, arr)
+
+
+def _mode(arr: np.ndarray) -> int:
+    uniques, counts = np.unique(arr, return_counts=True)
+    mask = ~np.isnan(uniques)
+    counts = counts[mask]
+    uniques = uniques[mask]
+    if len(counts) == 0:
+        return np.nan
+    return uniques[np.argmax(counts)]
 
 
 if __name__ == "__main__":

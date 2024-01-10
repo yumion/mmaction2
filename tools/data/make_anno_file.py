@@ -21,7 +21,7 @@ def parser_args():
         "--save-dir",
         "--save_dir",
         type=Path,
-        help="path to directory savgin converted annotation file",
+        help="path to directory converted annotation file",
     )
     parser.add_argument(
         "--suffix",
