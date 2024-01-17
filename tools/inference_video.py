@@ -1,14 +1,19 @@
 import argparse
 import csv
 import json
+from collections import deque
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
-from mmaction.apis import inference_recognizer, init_recognizer
-from segmental_score import _accuracy, _f1k
-from tqdm import tqdm
+import torch
+from mmaction.apis import init_recognizer
+from mmcv import to_tensor
+from mmengine.dataset import Compose, pseudo_collate
+from mmengine.registry import init_default_scope
+from segmental_score import frame_accuracy, segmental_f1k
+from tqdm import tqdm, trange
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,12 +76,12 @@ def main() -> None:
             writer.writerows(confidences.tolist())
 
     annotation = convert_start_end2continues(args.annotation, inferencer.classes)
-    segmental_f1 = _f1k(
+    segmental_f1 = segmental_f1k(
         preds, annotation[: len(preds)], n_classes=inferencer.num_classes, overlap=args.tolerance
     )
-    frame_acc = _accuracy(preds, annotation[: len(preds)])
+    frame_acc = frame_accuracy(preds, annotation[: len(preds)])
     scores = {
-        "video": video_path,
+        "video": video_path.stem,
         "total": len(preds),
         f"segmental_f1_score@{int(args.tolerance*100)}": segmental_f1,
         "accuracy": frame_acc,
@@ -90,7 +95,12 @@ def main() -> None:
 
 
 class WholeVideoInferencer:
-    def __init__(self, config_path: Path, checkpoint_path: Path, gpu_id: int = 0):
+    def __init__(
+        self,
+        config_path: Path,
+        checkpoint_path: Path,
+        gpu_id: int = 0,
+    ):
         self.config_path = config_path
         self.checkpoint_path = checkpoint_path
         self.device = f"cuda:{gpu_id}" if gpu_id >= 0 else "cpu"
@@ -104,6 +114,11 @@ class WholeVideoInferencer:
             str(self.checkpoint_path),
             device=self.device,
         )
+        cfg = self.model.cfg
+        init_default_scope(cfg.get("default_scope", "mmaction"))
+        # ignore first 3 pipelines (OpenCVInit, SampleFrames, OpenCVDecode)
+        # start from Resize
+        self.test_pipeline = Compose(cfg.test_pipeline[3:])
 
     def predict_on_video(
         self,
@@ -111,35 +126,57 @@ class WholeVideoInferencer:
         num_input_frames: int,
         frame_intervals: int,
         num_overlap: int = 0,
+        out_of_bound_opt: str = "repeat_last",
     ) -> Dict[str, np.ndarray]:
+        assert out_of_bound_opt in ["repeat_last", "loop"]
+
+        video = cv2.VideoCapture(str(video_path))
+
         segment_len = num_input_frames * frame_intervals
         num_overlap = min(num_overlap, segment_len - 1)  # clip maximum of num_overlap
-        inputs = self._preprocess_data(video_path, segment_len, num_overlap)
+        total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+
         if num_overlap == 0:
             all_scores = []
             all_labels = []
         else:
             all_scores = np.full(
-                (self.total_frames, self.num_classes, num_overlap), np.nan, dtype=np.float32
+                (total_frames, self.num_classes, num_overlap), np.nan, dtype=np.float32
             )
-            all_labels = np.full((self.total_frames, num_overlap), np.nan, dtype=np.float16)
+            all_labels = np.full((total_frames, num_overlap), np.nan, dtype=np.float16)
 
-        pbar = tqdm(inputs)
-        for i, (start_index, segment_len) in enumerate(pbar):
-            pbar.set_description(f"{video_path.name} - {start_index:06d}")
+        pbar = trange(total_frames)
+        frames = []
+        for i in pbar:
+            pbar.set_description(f"{video_path.name}/frame_{i:06d}")
+            ret, frame = video.read()
+            # skip frame
+            if i % frame_intervals != 0:
+                continue
 
-            output = self.predict_on_segment(video_path, start_index, segment_len)
+            # stack frames for model input
+            frames.append(frame)
+            if len(frames) < num_input_frames:
+                continue
+
+            output = self.predict_on_segment(frames, segment_len)
             if num_overlap == 0:
                 all_scores.extend(output["pred_score"])
                 all_labels.extend(output["pred_label"])
             else:
-                _idx = i % num_overlap
-                all_scores[start_index : start_index + segment_len, :, _idx] = output["pred_score"]
-                all_labels[start_index : start_index + segment_len, _idx] = output["pred_label"]
+                ring_idx = i % num_overlap
+                all_scores[i : i + segment_len, :, ring_idx] = output["pred_score"]
+                all_labels[i : i + segment_len, ring_idx] = output["pred_label"]
+
+            # reset inputs
+            frames = []
 
             pbar.set_postfix(
                 pred_label=output["pred_label"][0], pred_score=output["pred_score"][0]
             )
+
+            if i > 1000:
+                break
 
         if num_overlap == 0:
             return {
@@ -153,41 +190,30 @@ class WholeVideoInferencer:
                 "pred_labels": np_nanmode(all_labels, axis=-1),  # (N,segment) -> (N,)
             }
 
-    def _preprocess_data(
-        self,
-        video_path: Path,
-        segment_len: int,
-        num_overlap: int,
-    ) -> List[Tuple[int, int]]:
-        self.total_frames = int(cv2.VideoCapture(str(video_path)).get(cv2.CAP_PROP_FRAME_COUNT))
-        # calculate how many segments can be divided
-        num_segments = self.total_frames // (segment_len - num_overlap)
-        remainder = self.total_frames - num_segments * (segment_len - num_overlap)
-        # (start_index, segment_len)
-        # NOTE: change segment_len if remainder < segment_len in order not to beyond total_frames
-        inputs = [
-            (
-                i * (segment_len - num_overlap),
-                min(segment_len, self.total_frames - i * (segment_len - num_overlap)),
-            )
-            for i in range(num_segments)
-        ]
-        # add remainder as last segment
-        if remainder > 0:
-            inputs += [(num_segments * (segment_len - num_overlap), remainder)]
-        return inputs
+    def _prepare_data(
+        self, imgs: List[np.ndarray]
+    ) -> Dict[str, Union[List[np.ndarray], Tuple[int, int], int]]:
+        imgs = np.array(imgs)
+        # The default channel order of OpenCV is BGR, thus we change it to RGB
+        imgs = imgs[:, :, :, ::-1]
+        data = {
+            "imgs": list(imgs),
+            "original_shape": imgs[0].shape[:2],
+            "img_shape": imgs[0].shape[:2],
+            "clip_len": len(imgs),
+            "num_clips": 1,
+        }
+        return data
 
     def predict_on_segment(
-        self, video_path: Path, start_index: int, segment_len: int
+        self, inputs: np.ndarray, segment_len: int
     ) -> Dict[str, List[Union[int, float]]]:
-        data = dict(
-            filename=str(video_path),
-            label=-1,
-            start_index=start_index,
-            total_frames=segment_len,
-            modality="RGB",
-        )
-        result = inference_recognizer(self.model, data)
+        # to_tensor
+        data = self._prepare_data(inputs)
+        batch = pseudo_collate([self.test_pipeline(data)])
+        # Forward the model
+        with torch.no_grad():
+            result = self.model.test_step(batch)[0]
         return {
             "pred_score": [result.pred_score.tolist()] * segment_len,  # (N,C)
             "pred_label": result.pred_label.tolist() * segment_len,  # (N,)

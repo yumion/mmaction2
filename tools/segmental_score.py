@@ -17,7 +17,7 @@ def segment_intervals(Yi):
     return intervals
 
 
-def _accuracy(P, Y, **kwargs):
+def frame_accuracy(P, Y, **kwargs):
     def acc_(p, y):
         return np.mean(p == y)
 
@@ -27,7 +27,7 @@ def _accuracy(P, Y, **kwargs):
         return acc_(P, Y)
 
 
-def _f1k(P, Y, n_classes=0, bg_class=None, overlap=0.1, **kwargs):
+def segmental_f1k(P, Y, n_classes=0, bg_class=None, overlap=0.1, **kwargs):
     def overlap_(p, y, n_classes, bg_class, overlap):
         true_intervals = np.array(segment_intervals(y))
         true_labels = segment_labels(y)
@@ -93,15 +93,16 @@ def _f1k(P, Y, n_classes=0, bg_class=None, overlap=0.1, **kwargs):
         return overlap_(P, Y, n_classes, bg_class, overlap)
 
 
-def accuracy(pred_dir, ref_dir):
-    ref_action = np.genfromtxt(ref_dir / "action_discrete.txt", delimiter=",")
-    pred_action = np.genfromtxt(pred_dir / "action_discrete.txt", delimiter=",")
-    return _accuracy(pred_action[:, 1], ref_action[:, 1])
+def frame_precision_recall(P, Y):
+    def pr_(p, y):
+        TP = np.sum(p == y)
+        FP = np.sum(p != y)
+        FN = np.sum(y != p)
+        precision = TP / (TP + FP)
+        recall = TP / (TP + FN)
+        return precision, recall
 
-    # check if they have the same length and if they do not
-
-
-def f1k(pred_dir, ref_dir, k=10, n_classes=8):
-    ref_action = np.genfromtxt(ref_dir / "action_discrete.txt", delimiter=",").astype(int)
-    pred_action = np.genfromtxt(pred_dir / "action_discrete.txt", delimiter=",").astype(int)
-    return _f1k(pred_action[:, 1], ref_action[:, 1], n_classes=n_classes, overlap=k / 100)
+    if type(P) is list:
+        return np.mean([pr_(P[i], Y[i]) for i in range(len(P))], axis=0)
+    else:
+        return pr_(P, Y)
