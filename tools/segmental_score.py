@@ -17,17 +17,7 @@ def segment_intervals(Yi):
     return intervals
 
 
-def frame_accuracy(P, Y, **kwargs):
-    def acc_(p, y):
-        return np.mean(p == y)
-
-    if type(P) is list:
-        return np.mean([np.mean(P[i] == Y[i]) for i in range(len(P))])
-    else:
-        return acc_(P, Y)
-
-
-def segmental_f1k(P, Y, n_classes=0, bg_class=None, overlap=0.1, **kwargs):
+def segmental_confusion_matrix(P, Y, n_classes=0, bg_class=None, overlap=0.1, **kwargs):
     def overlap_(p, y, n_classes, bg_class, overlap):
         true_intervals = np.array(segment_intervals(y))
         true_labels = segment_labels(y)
@@ -76,21 +66,34 @@ def segmental_f1k(P, Y, n_classes=0, bg_class=None, overlap=0.1, **kwargs):
         # False negatives are any unused true segment (i.e. "miss")
         FN = n_true - true_used.sum()
 
-        precision = TP / (TP + FP)
-        recall = TP / (TP + FN)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            F1 = 2 * (precision * recall) / (precision + recall)
-
-        # If the prec+recall=0, it is a NaN. Set these to 0.
-        F1 = np.nan_to_num(F1)
-
-        return F1
+        return TP, FP, FN
 
     if type(P) is list:
         return np.mean([overlap_(P[i], Y[i], n_classes, bg_class, overlap) for i in range(len(P))])
     else:
         return overlap_(P, Y, n_classes, bg_class, overlap)
+
+
+def segmental_f1score(P, Y, n_classes=0, bg_class=None, overlap=0.1, **kwargs):
+    TP, FP, FN = segmental_confusion_matrix(P, Y, n_classes, bg_class, overlap)
+    return 2 * TP / (2 * TP + FP + FN)
+
+
+def segmental_precision_recall(P, Y, n_classes=0, bg_class=None, overlap=0.1, **kwargs):
+    TP, FP, FN = segmental_confusion_matrix(P, Y, n_classes, bg_class, overlap)
+    precision = TP / (TP + FP)
+    recall = TP / (TP + FN)
+    return precision, recall
+
+
+def frame_accuracy(P, Y, **kwargs):
+    def acc_(p, y):
+        return np.mean(p == y)
+
+    if type(P) is list:
+        return np.mean([np.mean(P[i] == Y[i]) for i in range(len(P))])
+    else:
+        return acc_(P, Y)
 
 
 def frame_precision_recall(P, Y):

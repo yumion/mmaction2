@@ -12,7 +12,12 @@ from mmaction.apis import init_recognizer
 from mmcv import to_tensor
 from mmengine.dataset import Compose, pseudo_collate
 from mmengine.registry import init_default_scope
-from segmental_score import frame_accuracy, segmental_f1k
+from segmental_score import (
+    frame_accuracy,
+    frame_precision_recall,
+    segmental_f1score,
+    segmental_precision_recall,
+)
 from tqdm import tqdm, trange
 
 
@@ -76,15 +81,23 @@ def main() -> None:
             writer.writerows(confidences.tolist())
 
     annotation = convert_start_end2continues(args.annotation, inferencer.classes)
-    segmental_f1 = segmental_f1k(
+    frame_acc = frame_accuracy(preds, annotation[: len(preds)])
+    frame_prec_rec = frame_precision_recall(preds, annotation[: len(preds)])
+    segmental_f1 = segmental_f1score(
         preds, annotation[: len(preds)], n_classes=inferencer.num_classes, overlap=args.tolerance
     )
-    frame_acc = frame_accuracy(preds, annotation[: len(preds)])
+    segmental_prec_rec = segmental_precision_recall(
+        preds, annotation[: len(preds)], n_classes=inferencer.num_classes, overlap=args.tolerance
+    )
     scores = {
         "video": video_path.stem,
         "total": len(preds),
-        f"segmental_f1_score@{int(args.tolerance*100)}": segmental_f1,
         "accuracy": frame_acc,
+        "precision": frame_prec_rec[0],
+        "recall": frame_prec_rec[1],
+        f"segmental_precision@{int(args.tolerance*100)}": segmental_prec_rec[0],
+        f"segmental_recall@{int(args.tolerance*100)}": segmental_prec_rec[1],
+        f"segmental_f1_score@{int(args.tolerance*100)}": segmental_f1,
     }
     print(scores)
 
@@ -133,7 +146,7 @@ class WholeVideoInferencer:
         video = cv2.VideoCapture(str(video_path))
 
         segment_len = num_input_frames * frame_intervals
-        num_overlap = min(num_overlap, segment_len - 1)  # clip maximum of num_overlap
+        num_overlap = min(num_overlap, num_input_frames - 1)  # clip maximum of num_overlap
         total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
 
         if num_overlap == 0:
@@ -169,14 +182,14 @@ class WholeVideoInferencer:
                 all_labels[i : i + segment_len, ring_idx] = output["pred_label"]
 
             # reset inputs
-            frames = []
+            if num_overlap == 0:
+                frames = []
+            else:
+                frames = frames[-num_overlap:]
 
             pbar.set_postfix(
                 pred_label=output["pred_label"][0], pred_score=output["pred_score"][0]
             )
-
-            if i > 1000:
-                break
 
         if num_overlap == 0:
             return {
