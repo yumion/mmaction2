@@ -54,20 +54,27 @@ def main():
 
     if args.labels is not None:
         label2index = read_label2index_map(args.labels)
-    for anno in tqdm(annotations):
-        df = pd.read_csv(anno, sep=args.sep)
-        df = convert_start_phase2start_end_phase(df)
 
-        if args.labels is not None:
-            df["phase-id"] = df["phase-id"].map(label2index)
+    with tqdm(annotations) as pbar:
+        for anno in pbar:
+            pbar.set_description(f"processing {anno.name}")
+            df = pd.read_csv(anno, sep=args.sep)
+            # ignore not annotation csv
+            if len(set(df.columns) & set(["start-frame", "phase-id"])) == 0:
+                pbar.set_postfix_str("skip")
+                continue
+            df = convert_start_phase2start_end_phase(df)
 
-        if args.save_dir is None:
-            save_dir = anno.parent
-        else:
-            save_dir = args.save_dir
-            save_dir.mkdir(parents=True, exist_ok=True)
-        # df.to_csv(save_dir / f"{anno.stem}.txt", index=False, header=False, sep=" ")
-        df.to_csv(save_dir / "mmaction.txt", index=False, header=False, sep=" ")
+            if args.labels is not None:
+                df["phase-id"] = df["phase-id"].map(label2index)
+
+            if args.save_dir is None:
+                save_dir = anno.parent
+            else:
+                save_dir = args.save_dir
+                save_dir.mkdir(parents=True, exist_ok=True)
+            # df.to_csv(save_dir / f"{anno.stem}.txt", index=False, header=False, sep=" ")
+            df.to_csv(save_dir / "mmaction.txt", index=False, header=False, sep=" ")
 
 
 def read_label2index_map(label_txt):

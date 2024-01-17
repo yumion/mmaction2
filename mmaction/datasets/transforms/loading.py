@@ -1374,7 +1374,6 @@ class OpenCVDecode(BaseTransform):
         results['imgs'] = list(imgs)
         results['original_shape'] = imgs[0].shape[:2]
         results['img_shape'] = imgs[0].shape[:2]
-
         return results
 
 
