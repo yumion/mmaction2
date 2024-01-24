@@ -10,12 +10,7 @@ import torch
 from mmaction.apis import init_recognizer
 from mmengine.dataset import Compose, pseudo_collate
 from mmengine.registry import init_default_scope
-from segmental_score import (
-    frame_accuracy,
-    frame_precision_recall,
-    segmental_f1score,
-    segmental_precision_recall,
-)
+from segmental_score import frame_score_report, segment_score_report
 from tqdm import trange
 
 
@@ -91,24 +86,15 @@ def main() -> None:
             writer.writerows(confidences.tolist())
 
     annotation = convert_start_end2continues(args.annotation, inferencer.classes)
-    frame_acc = frame_accuracy(preds, annotation[: len(preds)])
-    frame_prec_rec = frame_precision_recall(preds, annotation[: len(preds)])
-    segmental_f1 = segmental_f1score(
-        preds, annotation[: len(preds)], n_classes=inferencer.num_classes, overlap=args.tolerance
+    scores = {"video": video_path.stem, "total": len(preds)}
+    scores.update(
+        frame_score_report(preds, annotation, inferencer.num_classes, inferencer.classes)
     )
-    segmental_prec_rec = segmental_precision_recall(
-        preds, annotation[: len(preds)], n_classes=inferencer.num_classes, overlap=args.tolerance
+    scores.update(
+        segment_score_report(
+            preds, annotation, inferencer.num_classes, inferencer.classes, args.tolerance
+        )
     )
-    scores = {
-        "video": video_path.stem,
-        "total": len(preds),
-        "accuracy": frame_acc,
-        "precision": frame_prec_rec[0],
-        "recall": frame_prec_rec[1],
-        f"segmental_precision@{int(args.tolerance*100)}": segmental_prec_rec[0],
-        f"segmental_recall@{int(args.tolerance*100)}": segmental_prec_rec[1],
-        f"segmental_f1_score@{int(args.tolerance*100)}": segmental_f1,
-    }
     print(scores)
 
     if args.out:
@@ -280,19 +266,19 @@ class WholeVideoInferencer:
 
 
 def convert_start_end2continues(
-    annotation_file: Path, classes: Optional[Sequence[str]]
+    annotation_file: Path,
+    classes: Optional[Sequence[str]] = None,
 ) -> np.ndarray:
     annotation = []
     with annotation_file.open() as fr:
         reader = csv.reader(fr, delimiter=" ")
         for row in reader:
             start, end, classname, *_ = row
-            for _ in range(int(end) - int(start)):
-                if classes is not None:
-                    label = classes.index(classname)
-                else:
-                    label = int(classname)
-                annotation.append(label)
+            if classes is not None:
+                label = classes.index(classname)
+            else:
+                label = int(classname)
+            annotation.extend([label] * (int(end) - int(start) + 1))
     return np.array(annotation)
 
 
