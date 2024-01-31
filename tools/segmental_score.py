@@ -18,12 +18,6 @@ def segment_intervals(Yi):
 
 
 def segmental_confusion_matrix(P, Y, n_classes=0, bg_class=None, overlap=0.1, **kwargs):
-    if len(P) != len(Y):
-        warnings.warn(f"Prediction and ground truth have different lengths: {len(P)} vs {len(Y)}")
-        num_samples = min(len(P), len(Y))
-        P = P[:num_samples]
-        Y = Y[:num_samples]
-
     def overlap_(p, y, n_classes, bg_class, overlap):
         true_intervals = np.array(segment_intervals(y))
         true_labels = segment_labels(y)
@@ -103,12 +97,6 @@ def frame_accuracy(P, Y, **kwargs):
 
 
 def frame_confusion_matrix(P, Y, n_classes, **kwargs):
-    if len(P) != len(Y):
-        warnings.warn(f"Prediction and ground truth have different lengths: {len(P)} vs {len(Y)}")
-        num_samples = min(len(P), len(Y))
-        P = P[:num_samples]
-        Y = Y[:num_samples]
-
     # 混同行列の計算
     cm = np.zeros((n_classes, n_classes))
     for i in range(len(Y)):
@@ -141,6 +129,12 @@ def _safe_divide(x, y):
 
 
 def frame_score_report(P, Y, n_classes, class_names=None):
+    if len(P) != len(Y):
+        warnings.warn(f"Prediction and ground truth have different lengths: {len(P)} vs {len(Y)}")
+        num_samples = min(len(P), len(Y))
+        P = P[:num_samples].astype(int)
+        Y = Y[:num_samples].astype(int)
+
     tp, fp, fn, tn = frame_confusion_matrix(P, Y, n_classes)
     precision = calc_precision(tp, fp, fn, class_wise=True)
     recall = calc_recall(tp, fp, fn, class_wise=True)
@@ -161,6 +155,12 @@ def frame_score_report(P, Y, n_classes, class_names=None):
 
 
 def segment_score_report(P, Y, n_classes, class_names=None, overlap=0.1):
+    if len(P) != len(Y):
+        warnings.warn(f"Prediction and ground truth have different lengths: {len(P)} vs {len(Y)}")
+        num_samples = min(len(P), len(Y))
+        P = P[:num_samples].astype(int)
+        Y = Y[:num_samples].astype(int)
+
     tp, fp, fn = segmental_confusion_matrix(P, Y, n_classes, overlap=overlap)
     precision = calc_precision(tp, fp, fn, class_wise=True)
     recall = calc_recall(tp, fp, fn, class_wise=True)

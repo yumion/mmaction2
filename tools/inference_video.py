@@ -86,7 +86,14 @@ def main() -> None:
             writer.writerows(confidences.tolist())
 
     annotation = convert_start_end2continues(args.annotation, inferencer.classes)
-    scores = {"video": video_path.stem, "total": len(preds)}
+    scores = {
+        "video": video_path.stem,
+        "total": len(preds),
+        "num_overlap": args.num_overlap,
+        "num_input_frames": args.num_input_frames,
+        "frame_intervals": args.frame_intervals,
+        "out_of_bound_opt": args.out_of_bound_opt,
+    }
     scores.update(
         frame_score_report(preds, annotation, inferencer.num_classes, inferencer.classes)
     )
@@ -155,9 +162,19 @@ class WholeVideoInferencer:
             all_labels = []
         else:
             all_scores = np.full(
-                (total_frames, self.num_classes, num_overlap), np.nan, dtype=np.float32
+                (
+                    total_frames + num_overlap * frame_intervals,
+                    self.num_classes,
+                    num_overlap,
+                ),  # num_overlap分はみ出る
+                np.nan,
+                dtype=np.float32,
             )
-            all_labels = np.full((total_frames, num_overlap), np.nan, dtype=np.float16)
+            all_labels = np.full(
+                (total_frames + num_overlap * frame_intervals, num_overlap),
+                np.nan,
+                dtype=np.float16,
+            )
 
         pbar = trange(total_frames)
         frames = []
@@ -182,9 +199,13 @@ class WholeVideoInferencer:
                 all_scores.extend(output["pred_score"])
                 all_labels.extend(output["pred_label"])
             else:
-                ring_idx = i % num_overlap
-                all_scores[i : i + segment_len, :, ring_idx] = output["pred_score"]
-                all_labels[i : i + segment_len, ring_idx] = output["pred_label"]
+                ring_idx = i // frame_intervals % num_overlap
+                all_scores[
+                    i - segment_len + frame_intervals : i + frame_intervals, :, ring_idx
+                ] = output["pred_score"]
+                all_labels[
+                    i - segment_len + frame_intervals : i + frame_intervals, ring_idx
+                ] = output["pred_label"]
 
             # reset inputs
             if num_overlap == 0:
@@ -199,17 +220,18 @@ class WholeVideoInferencer:
             )
 
         # predict on last clip
-        if len(frames) > num_overlap:
+        if len(frames) > 0:
             # repeat current frames for last clip
+            last_clip_len = len(frames) * frame_intervals
             last_frames = self._augment_last_clip(frames, num_input_frames, out_of_bound_opt)
-            output = self.predict_on_segment(last_frames, total_frames - len(all_scores))
+            output = self.predict_on_segment(last_frames, last_clip_len)
             if num_overlap == 0:
                 all_scores.extend(output["pred_score"])
                 all_labels.extend(output["pred_label"])
             else:
-                ring_idx = i % num_overlap
-                all_scores[i : i + segment_len, :, ring_idx] = output["pred_score"]
-                all_labels[i : i + segment_len, ring_idx] = output["pred_label"]
+                ring_idx = i // frame_intervals % num_overlap
+                all_scores[i - last_clip_len : i, :, ring_idx] = output["pred_score"]
+                all_labels[i - last_clip_len : i, ring_idx] = output["pred_label"]
 
         if num_overlap == 0:
             return {
@@ -219,8 +241,12 @@ class WholeVideoInferencer:
         else:
             # Compute average of scores and mode of labels for each frame
             return {
-                "pred_scores": np.nanmean(all_scores, axis=-1),  # (N,C,segment) -> (N,C)
-                "pred_labels": np_nanmode(all_labels, axis=-1),  # (N,segment) -> (N,)
+                "pred_scores": np.nanmean(all_scores, axis=-1)[
+                    :total_frames  # はみ出た分を捨てる
+                ],  # (N,C,segment) -> (N,C)
+                "pred_labels": np_nanmode(all_labels, axis=-1)[
+                    :total_frames
+                ],  # (N,segment) -> (N,)
             }
 
     def predict_on_segment(
