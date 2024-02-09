@@ -287,7 +287,9 @@ class WholeVideoInferencer:
         if out_of_bound_opt == "repeat_last":
             frames.extend([frames[-1]] * (num_input_frames - len(frames)))
         elif out_of_bound_opt == "loop":
-            frames.extend(frames[: num_input_frames - len(frames)])
+            num_repeat = (num_input_frames - len(frames)) // len(frames) + 1
+            frames = frames * (num_repeat + 1)
+            frames = frames[:num_input_frames]
         return frames
 
 
