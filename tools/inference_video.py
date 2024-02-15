@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
         "--out-of-bound-opt",
         "--out_of_bound_opt",
         type=str,
+        choices=["repeat_last", "loop"],
         default="repeat_last",
         help="repeat last frame of loop clip for last clip",
     )
