@@ -17,19 +17,22 @@ def segment_intervals(Yi):
     return intervals
 
 
-def segmental_confusion_matrix(P, Y, n_classes=0, bg_class=None, overlap=0.1, **kwargs):
-    def overlap_(p, y, n_classes, bg_class, overlap):
+def segmental_confusion_matrix(P, Y, n_classes=0, bg_classes=None, overlap=0.1, **kwargs):
+    def overlap_(p, y, n_classes, bg_classes, overlap):
         true_intervals = np.array(segment_intervals(y))
         true_labels = segment_labels(y)
         pred_intervals = np.array(segment_intervals(p))
         pred_labels = segment_labels(p)
 
         # Remove background labels
-        if bg_class is not None:
-            true_intervals = true_intervals[true_labels != bg_class]
-            true_labels = true_labels[true_labels != bg_class]
-            pred_intervals = pred_intervals[pred_labels != bg_class]
-            pred_labels = pred_labels[pred_labels != bg_class]
+        if bg_classes is not None:
+            if type(bg_classes) is int:
+                bg_classes = [bg_classes]
+            for bg_class in bg_classes:
+                true_intervals = true_intervals[true_labels != bg_class]
+                true_labels = true_labels[true_labels != bg_class]
+                pred_intervals = pred_intervals[pred_labels != bg_class]
+                pred_labels = pred_labels[pred_labels != bg_class]
 
         n_true = true_labels.shape[0]
         n_pred = pred_labels.shape[0]
@@ -61,6 +64,9 @@ def segmental_confusion_matrix(P, Y, n_classes=0, bg_class=None, overlap=0.1, **
             else:
                 FP[pred_labels[j]] += 1
 
+        if bg_classes is not None:
+            TP = np.delete(TP, bg_classes)
+            FP = np.delete(FP, bg_classes)
         TP = TP.sum()
         FP = FP.sum()
         # False negatives are any unused true segment (i.e. "miss")
@@ -69,18 +75,20 @@ def segmental_confusion_matrix(P, Y, n_classes=0, bg_class=None, overlap=0.1, **
         return TP, FP, FN
 
     if type(P) is list:
-        return np.mean([overlap_(P[i], Y[i], n_classes, bg_class, overlap) for i in range(len(P))])
+        return np.mean(
+            [overlap_(P[i], Y[i], n_classes, bg_classes, overlap) for i in range(len(P))]
+        )
     else:
-        return overlap_(P, Y, n_classes, bg_class, overlap)
+        return overlap_(P, Y, n_classes, bg_classes, overlap)
 
 
-def segmental_f1score(P, Y, n_classes=0, bg_class=None, overlap=0.1, **kwargs):
-    TP, FP, FN = segmental_confusion_matrix(P, Y, n_classes, bg_class, overlap)
+def segmental_f1score(P, Y, n_classes=0, bg_classes=None, overlap=0.1, **kwargs):
+    TP, FP, FN = segmental_confusion_matrix(P, Y, n_classes, bg_classes, overlap)
     return 2 * TP / (2 * TP + FP + FN)
 
 
-def segmental_precision_recall(P, Y, n_classes=0, bg_class=None, overlap=0.1, **kwargs):
-    TP, FP, FN = segmental_confusion_matrix(P, Y, n_classes, bg_class, overlap)
+def segmental_precision_recall(P, Y, n_classes=0, bg_classes=None, overlap=0.1, **kwargs):
+    TP, FP, FN = segmental_confusion_matrix(P, Y, n_classes, bg_classes, overlap)
     precision = TP / (TP + FP)
     recall = TP / (TP + FN)
     return precision, recall
@@ -96,11 +104,14 @@ def frame_accuracy(P, Y, **kwargs):
         return acc_(P, Y)
 
 
-def frame_confusion_matrix(P, Y, n_classes, **kwargs):
+def frame_confusion_matrix(P, Y, n_classes, ignore_classes=None):
     # 混同行列の計算
     cm = np.zeros((n_classes, n_classes))
     for i in range(len(Y)):
         cm[Y[i], int(P[i])] += 1
+    if ignore_classes is not None:
+        cm = np.delete(cm, ignore_classes, axis=0)
+        cm = np.delete(cm, ignore_classes, axis=1)
     # TP, FP, FNの計算
     TP = np.diag(cm)
     FP = np.sum(cm, axis=0) - TP
@@ -128,17 +139,26 @@ def _safe_divide(x, y):
     return np.divide(x, y, out=np.zeros_like(x), where=y != 0).tolist()
 
 
-def frame_score_report(P, Y, n_classes, class_names=None):
+def frame_score_report(P, Y, n_classes, class_names=None, ignore_classes=None):
     if len(P) != len(Y):
         warnings.warn(f"Prediction and ground truth have different lengths: {len(P)} vs {len(Y)}")
         num_samples = min(len(P), len(Y))
         P = P[:num_samples].astype(int)
         Y = Y[:num_samples].astype(int)
 
-    tp, fp, fn, tn = frame_confusion_matrix(P, Y, n_classes)
+    tp, fp, fn, tn = frame_confusion_matrix(P, Y, n_classes, ignore_classes=ignore_classes)
     precision = calc_precision(tp, fp, fn, class_wise=True)
     recall = calc_recall(tp, fp, fn, class_wise=True)
     f1score = calc_f1score(tp, fp, fn, class_wise=True)
+    if ignore_classes is not None:
+        P_filtered = []
+        Y_filtered = []
+        for p, y in zip(P, Y):
+            if y not in set(ignore_classes):
+                P_filtered.append(p)
+                Y_filtered.append(y)
+        P = np.array(P_filtered)
+        Y = np.array(Y_filtered)
     accuracy = accuracy_score(P, Y)
     report = {
         "precision": precision,
@@ -150,18 +170,25 @@ def frame_score_report(P, Y, n_classes, class_names=None):
         "mean_f1score": np.mean(f1score),
     }
     if class_names is not None:
+        report["original_class_names"] = class_names
+        if ignore_classes is not None:
+            class_names = [
+                class_name for i, class_name in enumerate(class_names) if i not in ignore_classes
+            ]
         report["class_names"] = class_names
     return report
 
 
-def segment_score_report(P, Y, n_classes, class_names=None, overlap=0.1):
+def segment_score_report(P, Y, n_classes, class_names=None, ignore_classes=None, overlap=0.1):
     if len(P) != len(Y):
         warnings.warn(f"Prediction and ground truth have different lengths: {len(P)} vs {len(Y)}")
         num_samples = min(len(P), len(Y))
         P = P[:num_samples].astype(int)
         Y = Y[:num_samples].astype(int)
 
-    tp, fp, fn = segmental_confusion_matrix(P, Y, n_classes, overlap=overlap)
+    tp, fp, fn = segmental_confusion_matrix(
+        P, Y, n_classes, bg_classes=ignore_classes, overlap=overlap
+    )
     precision = calc_precision(tp, fp, fn, class_wise=True)
     recall = calc_recall(tp, fp, fn, class_wise=True)
     f1score = calc_f1score(tp, fp, fn, class_wise=True)
@@ -171,5 +198,10 @@ def segment_score_report(P, Y, n_classes, class_names=None, overlap=0.1):
         f"segmental_f1score@{int(overlap*100)}": f1score,
     }
     if class_names is not None:
+        report["original_class_names"] = class_names
+        if ignore_classes is not None:
+            class_names = [
+                class_name for i, class_name in enumerate(class_names) if i not in ignore_classes
+            ]
         report["class_names"] = class_names
     return report
