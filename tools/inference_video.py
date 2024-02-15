@@ -40,6 +40,7 @@ def parse_args() -> argparse.Namespace:
         default="repeat_last",
         help="repeat last frame of loop clip for last clip",
     )
+    parser.add_argument("--ignore-classes", "--ignore_classes", nargs="+", default=None)
     parser.add_argument(
         "--tolerance", type=float, default=0.1, help="tolerance for segmental score"
     )
@@ -87,6 +88,7 @@ def main() -> None:
             writer.writerows(confidences.tolist())
 
     annotation = convert_start_end2continues(args.annotation, inferencer.classes)
+    ignore_classes = get_class_index(inferencer.classes, args.ignore_classes)
     scores = {
         "video": video_path.stem,
         "total": len(preds),
@@ -96,11 +98,22 @@ def main() -> None:
         "out_of_bound_opt": args.out_of_bound_opt,
     }
     scores.update(
-        frame_score_report(preds, annotation, inferencer.num_classes, inferencer.classes)
+        frame_score_report(
+            preds,
+            annotation,
+            inferencer.num_classes,
+            inferencer.classes,
+            ignore_classes,
+        )
     )
     scores.update(
         segment_score_report(
-            preds, annotation, inferencer.num_classes, inferencer.classes, args.tolerance
+            preds,
+            annotation,
+            inferencer.num_classes,
+            inferencer.classes,
+            ignore_classes,
+            args.tolerance,
         )
     )
     print(scores)
@@ -204,9 +217,9 @@ class WholeVideoInferencer:
                 all_scores[
                     i - segment_len + frame_intervals : i + frame_intervals, :, ring_idx
                 ] = output["pred_score"]
-                all_labels[
-                    i - segment_len + frame_intervals : i + frame_intervals, ring_idx
-                ] = output["pred_label"]
+                all_labels[i - segment_len + frame_intervals : i + frame_intervals, ring_idx] = (
+                    output["pred_label"]
+                )
 
             # reset inputs
             if num_overlap == 0:
@@ -309,6 +322,14 @@ def convert_start_end2continues(
                 label = int(classname)
             annotation.extend([label] * (int(end) - int(start) + 1))
     return np.array(annotation)
+
+
+def get_class_index(
+    class_names: Tuple[str], ignore_class_names: Optional[Tuple[str]]
+) -> Optional[Tuple[int]]:
+    if ignore_class_names is None:
+        return
+    return tuple(class_names.index(class_name) for class_name in ignore_class_names)
 
 
 def np_nanmode(arr: Sequence, axis: Optional[int] = None) -> np.ndarray:
