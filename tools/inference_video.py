@@ -175,12 +175,9 @@ class WholeVideoInferencer:
             all_scores = []
             all_labels = []
         else:
+            # num_overlap分はみ出る
             all_scores = np.full(
-                (
-                    total_frames + num_overlap * frame_intervals,
-                    self.num_classes,
-                    num_overlap,
-                ),  # num_overlap分はみ出る
+                (total_frames + num_overlap * frame_intervals, self.num_classes, num_overlap),
                 np.nan,
                 dtype=np.float32,
             )
@@ -258,9 +255,9 @@ class WholeVideoInferencer:
                 "pred_scores": np.nanmean(all_scores, axis=-1)[
                     :total_frames  # はみ出た分を捨てる
                 ],  # (N,C,segment) -> (N,C)
-                "pred_labels": np_nanmode(all_labels, axis=-1)[
-                    :total_frames
-                ],  # (N,segment) -> (N,)
+                "pred_labels": np_nanmode(all_labels, axis=-1)[:total_frames].astype(
+                    int
+                ),  # (N,segment) -> (N,)
             }
 
     def predict_on_segment(
